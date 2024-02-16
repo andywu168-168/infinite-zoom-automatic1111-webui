@@ -1,8 +1,8 @@
 import gradio as gr
-from .run import create_zoom
 import modules.shared as shared
 from modules.call_queue import wrap_gradio_gpu_call
 from modules.ui import create_output_panel
+from .run_interface import createZoom
 
 from .static_variables import (
     default_prompt,
@@ -12,6 +12,7 @@ from .static_variables import (
     default_cfg_scale,
     default_mask_blur,
     default_sampler,
+    default_overmask
 )
 from .helpers import putPrompts, clearPrompts
 from .prompt_util import readJsonPrompt
@@ -182,6 +183,7 @@ def on_ui_tabs():
                         value=30,
                         minimum=1,
                         maximum=60,
+                        step=1
                     )
                     video_zoom_mode = gr.Radio(
                         label="Zoom mode",
@@ -193,15 +195,17 @@ def on_ui_tabs():
                         label="number of start frame dupe",
                         info="Frames to freeze at the start of the video",
                         value=0,
-                        minimum=1,
+                        minimum=0,
                         maximum=60,
+                        step=1
                     )
                     video_last_frame_dupe_amount = gr.Slider(
                         label="number of last frame dupe",
                         info="Frames to freeze at the end of the video",
                         value=0,
-                        minimum=1,
+                        minimum=0,
                         maximum=60,
+                        step=1
                     )
                     video_zoom_speed = gr.Slider(
                         label="Zoom Speed",
@@ -211,19 +215,60 @@ def on_ui_tabs():
                         step=0.1,
                         info="Zoom speed in seconds (higher values create slower zoom)",
                     )
+                    with gr.Accordion("FFMPEG Expert", open=False):
+                        gr.Markdown(
+                            """# I need FFMPEG control
+You can put CLI options here as documented <a href='https://ffmpeg.org/ffmpeg.html#Options'>FFMPEG OPTIONS</a> and <a href='https://ffmpeg.org/ffmpeg-filters.html'>FILTER OPTIONS</a>
+
+## Examples:
+* ```-vf crop=200:200```  crop down to 200x200 pixel from center (useful to cutoff jumpy borders)
+* ```-vf scale=320:240```  scales your video to 320x240
+* ```-c:v libx264 -preset veryslow -qp 0``` uses lossless compression
+
+You might give multiple options in one line.
+
+"""
+)
+                        video_ffmpeg_opts=gr.Textbox(
+                            value="", label="FFMPEG Opts"
+                        )
+                        
 
                 with gr.Tab("Outpaint"):
+                    outpaint_amount_px = gr.Slider(
+                        label="Outpaint pixels",
+                        minimum=4,
+                        maximum=508,
+                        step=8,
+                        value=64,
+                    )
+
                     inpainting_mask_blur = gr.Slider(
                         label="Mask Blur",
                         minimum=0,
                         maximum=64,
+                        step=1,
                         value=default_mask_blur,
+                    )
+                    overmask = gr.Slider(
+                        label="Overmask (px) paint a bit into centered image",
+                        minimum=0,
+                        maximum=64,
+                        step=1,
+                        value=default_overmask,
                     )
                     inpainting_fill_mode = gr.Radio(
                         label="Masked content",
                         choices=["fill", "original", "latent noise", "latent nothing"],
                         value="latent noise",
                         type="index",
+                    )
+
+                    outpaintStrategy= gr.Radio(
+                        label="Outpaint Strategy",
+                        choices=["Center", "Corners"],
+                        value="Corners",
+                        type="value" 
                     )
 
                 with gr.Tab("Post proccess"):
@@ -243,9 +288,8 @@ def on_ui_tabs():
                     )
                     with gr.Accordion("Help", open=False):
                         gr.Markdown(
-                            """# Performance critical
-Depending on amount of frames and which upscaler you choose it might took a long time to render.  
-Our best experience and trade-off is the R-ERSGAn4x upscaler.
+                            """# Performance warning
+Each step (aka prompt from the table) will be upscaled. Afterwards the zooming will be interpolated on upscaled images. It can take much VRAM, RAM and CPU"
 """
                         )
 
@@ -261,7 +305,7 @@ Our best experience and trade-off is the R-ERSGAn4x upscaler.
                 )
 
         generate_btn.click(
-            fn=wrap_gradio_gpu_call(create_zoom, extra_outputs=[None, "", ""]),
+            fn=wrap_gradio_gpu_call(createZoom, extra_outputs=[None, "", ""]),
             inputs=[
                 main_common_prompt_pre,
                 main_prompts,
@@ -276,6 +320,7 @@ Our best experience and trade-off is the R-ERSGAn4x upscaler.
                 video_zoom_mode,
                 video_start_frame_dupe_amount,
                 video_last_frame_dupe_amount,
+                video_ffmpeg_opts,
                 inpainting_mask_blur,
                 inpainting_fill_mode,
                 video_zoom_speed,
@@ -287,6 +332,9 @@ Our best experience and trade-off is the R-ERSGAn4x upscaler.
                 upscale_do,
                 upscaler_name,
                 upscale_by,
+                overmask,
+                outpaintStrategy,
+                outpaint_amount_px
             ],
             outputs=[output_video, out_image, generation_info, html_info, html_log],
         )
